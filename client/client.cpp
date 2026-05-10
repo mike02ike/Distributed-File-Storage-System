@@ -21,13 +21,12 @@ int createClient(){
     return clientSocket;
 }
 
-int connectClient(int clientSocket){
+int connectClient(int clientSocket, const std::string& ip){
     // Define Server Address
     sockaddr_in serverAddress;
     serverAddress.sin_family = AF_INET;
     serverAddress.sin_port = htons(8080);
-    inet_pton(AF_INET, "127.0.0.1", &serverAddress.sin_addr);
-    // inet_pton(AF_INET, "192.168.0.207", &serverAddress.sin_addr);
+    inet_pton(AF_INET, ip.c_str(), &serverAddress.sin_addr);
     
     int result = connect(clientSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
     if (result == -1) {
@@ -142,11 +141,16 @@ int fileDataSend(int clientSocket, std::ifstream& file, std::streamsize fileSize
     return totalBytesSent;
 }
 
-int main(){
+int main(int argc, char* argv[]){
+    if (argc != 2) {
+        std::cout << "Usage: " << argv[0] << " <server_ip>" << std::endl;
+        return -1;
+    }
+
     int clientSocket = createClient();
     if (clientSocket == -1){ return -1; }
 
-    int clientConnect = connectClient(clientSocket);
+    int clientConnect = connectClient(clientSocket, argv[1]);
     if (clientConnect == -1){ return -1; }
 
     std::string filePath = getFilePath();
