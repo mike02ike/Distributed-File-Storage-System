@@ -8,6 +8,7 @@
 #include <thread>
 #include <csignal>
 #include <atomic>
+#include <fstream>
 
 
 std::atomic<bool> keepRunning(true);
@@ -93,20 +94,104 @@ ClientInfo acceptConnection(int serverSocket){
     }
 }
 
+bool receivePathLength(int clientSocket, uint32_t& pathLength){
+    int bytesRecieved = 0;
+    
+    while(bytesRecieved < sizeof(uint32_t)){
+        int bytes = recv(clientSocket, (char*)&pathLength + bytesRecieved, sizeof(uint32_t) - bytesRecieved, 0);
+        if (bytes <= 0) {
+            std::cout << "Failed to receive file path length." << std::endl;
+            return false;
+        }
+        bytesRecieved += bytes;
+    }
+    pathLength = ntohl(pathLength);
+    std::cout << "Received file path length: " << pathLength << std::endl;
+    return true;
+}
+
+bool receivePath(int clientSocket, uint32_t pathLength, std::string& filePath){
+    filePath.assign(pathLength, '\0');
+    int bytesRecieved = 0;
+
+    while(bytesRecieved < pathLength){
+        int bytes = recv(clientSocket, &filePath[bytesRecieved], pathLength - bytesRecieved, 0);
+        if (bytes <= 0) {
+            std::cout << "Failed to receive file path." << std::endl;
+            return false;
+        }
+        bytesRecieved += bytes;
+    }
+    std::cout << "Received file path: " << filePath << std::endl;
+    return true;
+}
+
+bool receiveFileSize(int clientSocket, uint32_t& fileSize){
+    int bytesRecieved = 0;
+
+    while(bytesRecieved < sizeof(uint32_t)){
+        int bytes = recv(clientSocket, (char*)&fileSize + bytesRecieved, sizeof(uint32_t) - bytesRecieved, 0);
+        if (bytes <= 0) {
+            std::cout << "Failed to receive file size." << std::endl;
+            return false;
+        }
+        bytesRecieved += bytes;
+    }
+    fileSize = ntohl(fileSize);
+    std::cout << "Received file size: " << fileSize << " bytes" << std::endl;
+    return true;
+}
+
+bool recieveFileData(int clientSocket, int clientID, std::string& fileData, uint32_t fileSize){
+    fileData.resize(fileSize);
+    int bytesRecieved = 0;
+
+    while(bytesRecieved < fileSize){
+        int bytes = recv(clientSocket, &fileData[bytesRecieved], fileSize - bytesRecieved, 0);
+        if (bytes == -1) {
+            std::cout << "Failed to receive file data." << std::endl;
+            return false;
+        } else if (bytes == 0) {
+            std::cout << "Client " << clientID << " disconnected." << std::endl;
+            return false;
+        }
+        bytesRecieved += bytes;
+    }
+    std::cout << "Received file data successfully." << std::endl;
+    return true;
+}
+
 void handleClient(int clientSocket, int clientID){
-    int data = 1;
-    char buffer[1024] = { 0 };
-
-    while ((data = recv(clientSocket, buffer, sizeof(buffer), 0)) > 0){
-        std::cout.write(buffer, data);
-        std::cout << std::endl;
+    uint32_t pathLength;
+    std::string filePath;
+    uint32_t fileSize;
+    std::string fileData;
+    if (!receivePathLength(clientSocket, pathLength)) {
+        close(clientSocket);
+        return;
+    }
+    if (!receivePath(clientSocket, pathLength, filePath)) {
+        close(clientSocket);
+        return;
+    }
+    if (!receiveFileSize(clientSocket, fileSize)) {
+        close(clientSocket);
+        return;
+    }
+    if (!recieveFileData(clientSocket, clientID, fileData, fileSize)) {
+        close(clientSocket);
+        return;
     }
 
-    if (data == 0){
-        std::cout << "Client " << clientID << " disconnected." << std::endl;
-    } else {
-        perror("Error");
+    std::ofstream outFile(filePath, std::ios::binary);
+    if (!outFile) {
+        std::cout << "Failed to open file for writing: " << filePath << std::endl;
+        close(clientSocket);
+        return;
     }
+    outFile.write(fileData.data(), fileSize);
+    outFile.close();
+    std::cout << "Client " << clientID << " successfully transferred file: " << filePath << std::endl;
     close(clientSocket);
 }
 
