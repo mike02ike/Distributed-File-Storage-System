@@ -32,7 +32,7 @@ int connectClient(int clientSocket, const std::string& ip){
     if (result == -1) {
         std::cout << "Failed to connect to server socket." << std::endl;
     } else {
-        std::cout << "Client successfully connected to server." << std::endl;
+        std::cout << "Client successfully connected to server.\n" << std::endl;
     }
     return result;
 }
@@ -60,7 +60,6 @@ std::string getFilePath(){
         std::cout << "File path is not a regular file." << std::endl;
         return "";
     }
-    std::cout << "File path is valid." << std::endl;
     return filePath;
 }
 
@@ -73,6 +72,7 @@ std::streamsize getFileSize(std::ifstream& file){
         std::cout << "Failed to determine file size." << std::endl;
         return -1;
     }
+    std::cout << "File size: " << fileSize << " bytes" << std::endl;
     return fileSize;
 }
 
@@ -149,6 +149,43 @@ int main(int argc, char* argv[]){
 
     int clientSocket = createClient();
     if (clientSocket == -1){ return -1; }
+
+int pathLengthSend(int clientSocket, const std::string& filePath){
+    uint32_t pathLength = htonl(filePath.size());
+    int pathLengthSend = send(clientSocket, &pathLength, sizeof(pathLength), 0);
+    if (pathLengthSend == -1){
+        std::cout << "Failed to send file path length." << std::endl;
+        return -1;
+    } else {
+        std::cout << "File path length sent successfully." << std::endl;
+        return pathLengthSend;
+    }
+}
+
+    std::string filePath = getFilePath();
+    if(filePath == "") { closeClient(clientSocket); return -1; }
+
+    std::ifstream file(filePath, std::ios::binary);
+    std::string fileName = std::filesystem::path(filePath).filename().string();
+    std::cout << "File opened successfully: " << fileName << std::endl;
+
+    std::streamsize fileSize = getFileSize(file);
+    if(fileSize == -1) { file.close(); closeClient(clientSocket); return -1; }
+
+    int pathLengthSendResult = pathLengthSend(clientSocket, filePath);
+    if (pathLengthSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
+
+    int pathSendResult = pathSend(clientSocket, filePath);
+    if (pathSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
+
+    int fileSizeSendResult = fileSizeSend(clientSocket, fileSize);
+    if (fileSizeSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
+
+    int fileDataSendResult = fileDataSend(clientSocket, file, fileSize);
+    if (fileDataSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
+
+    file.close();
+    closeClient(clientSocket);
 
     int clientConnect = connectClient(clientSocket, argv[1]);
     if (clientConnect == -1){ return -1; }

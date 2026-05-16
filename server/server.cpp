@@ -9,6 +9,7 @@
 #include <csignal>
 #include <atomic>
 #include <fstream>
+#include <filesystem>
 
 
 std::atomic<bool> keepRunning(true);
@@ -106,7 +107,6 @@ bool receivePathLength(int clientSocket, uint32_t& pathLength){
         bytesRecieved += bytes;
     }
     pathLength = ntohl(pathLength);
-    std::cout << "Received file path length: " << pathLength << std::endl;
     return true;
 }
 
@@ -152,7 +152,7 @@ bool recieveFileData(int clientSocket, int clientID, std::string& fileData, uint
             std::cout << "Failed to receive file data." << std::endl;
             return false;
         } else if (bytes == 0) {
-            std::cout << "Client " << clientID << " disconnected." << std::endl;
+            std::cerr << "Client " << clientID << " disconnected." << std::endl;
             return false;
         }
         bytesRecieved += bytes;
@@ -166,6 +166,8 @@ void handleClient(int clientSocket, int clientID){
     std::string filePath;
     uint32_t fileSize;
     std::string fileData;
+    std::string fileName;
+
     if (!receivePathLength(clientSocket, pathLength)) {
         close(clientSocket);
         return;
@@ -191,7 +193,9 @@ void handleClient(int clientSocket, int clientID){
     }
     outFile.write(fileData.data(), fileSize);
     outFile.close();
-    std::cout << "Client " << clientID << " successfully transferred file: " << filePath << std::endl;
+    fileName = std::filesystem::path(filePath).filename().string();
+
+    std::cout << "Client " << clientID << " successfully transferred file: " << fileName << std::endl;
     close(clientSocket);
 }
 
@@ -227,7 +231,7 @@ int main(){
         clientCount++;
 
         int clientID = clientCount.load();
-        std::cout << "Client " << clientID << " successfully connected from: " << client.ip << ":" << client.port << std::endl;
+        std::cout << "\nClient " << clientID << " successfully connected from: " << client.ip << ":" << client.port << std::endl;
 
         std::thread(handleClient, client.socket, clientID).detach();
     }
