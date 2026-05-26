@@ -7,9 +7,13 @@
 #include <csignal>
 #include <fstream>
 #include <filesystem>
+#include "../common.h"
+#include <zlib.h>
+
 
 std::atomic<bool> keepRunning(true);
 
+// client configuration functions
 int createClient(){
     //TCP & IPv4
     int clientSocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -25,7 +29,7 @@ int connectClient(int clientSocket, const std::string& ip){
     // Define Server Address
     sockaddr_in serverAddress;
     serverAddress.sin_family = AF_INET;
-    serverAddress.sin_port = htons(8080);
+    serverAddress.sin_port = htons(PORT);
     inet_pton(AF_INET, ip.c_str(), &serverAddress.sin_addr);
     
     int result = connect(clientSocket, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
@@ -42,6 +46,7 @@ void closeClient(int clientSocket){
     std::cout << "Client socket closed." << std::endl;
 }
 
+// file handling functions
 std::string getFilePath(){
     std::string filePath;
     std::cout << "Enter file path:" << std::endl;
@@ -76,6 +81,7 @@ std::streamsize getFileSize(std::ifstream& file){
     return fileSize;
 }
 
+// header send functions
 int pathLengthSend(int clientSocket, const std::string& filePath){
     uint32_t pathLength = htonl(filePath.size());
     int pathLengthSend = send(clientSocket, &pathLength, sizeof(pathLength), 0);
@@ -111,33 +117,80 @@ int fileSizeSend(int clientSocket, std::streamsize fileSize){
     }
 }
 
-int fileDataSend(int clientSocket, std::ifstream& file, std::streamsize fileSize){
-    const size_t bufferSize = 4096;
-    char buffer[bufferSize];
+int chunkCountSend(int clientSocket, std::streamsize fileSize){
+    uint32_t chunkCount32 = htonl((fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE);
+    int chunkCountSend = send(clientSocket, &chunkCount32, sizeof(chunkCount32), 0);
+    if (chunkCountSend == -1){
+        std::cout << "Failed to send chunk count." << std::endl;
+        return -1;
+    } else {
+        std::cout << "Chunk count sent successfully." << std::endl;
+        return chunkCountSend;
+    }
+}
+
+// data send function
+int chunkDataSend(int clientSocket, std::ifstream& file, std::streamsize fileSize){
+    uint32_t chunkIndex = 0;
+    std::vector<char> buffer(CHUNK_SIZE);
     std::streamsize totalBytesSent = 0;
 
     while (totalBytesSent < fileSize) {
-        file.read(buffer, bufferSize);
+        file.read(buffer.data(), CHUNK_SIZE);
         std::streamsize bytesRead = file.gcount();
 
         if (bytesRead <= 0) {
             std::cout << "Failed to read from file." << std::endl;
             return -1;
         }
-        
+        // Calculate the CRC32 checksum of the chunk
+        uLong checksum = crc32(0L, (const Bytef*)buffer.data(), bytesRead);
+
+        // Send the chunk index
+        uint32_t chunkIndex32 = htonl(chunkIndex);
+        int chunkIndexSend = send(clientSocket, &chunkIndex32, sizeof(chunkIndex32), 0);
+        if (chunkIndexSend == -1){
+            std::cout << "Failed to send chunk index." << std::endl;
+            return -1;
+        }
+        std::cout << "Chunk index sent successfully." << std::endl;
+
+        // Send the chunk size
+        uint32_t chunkSize = htonl((uint32_t)bytesRead);
+        int chunkSizeSend = send(clientSocket, &chunkSize, sizeof(chunkSize), 0);
+        if (chunkSizeSend == -1){
+            std::cout << "Failed to send chunk size." << std::endl;
+            return -1;
+        }
+        std::cout << "Chunk size sent successfully." << std::endl;
+
+        // Send the chunk data
         std::streamsize bytesSentSoFar = 0;
         while(bytesSentSoFar < bytesRead) {
-            int bytesSent = send(clientSocket, buffer + bytesSentSoFar, bytesRead - bytesSentSoFar, 0);
-
+            int bytesSent = send(clientSocket, buffer.data() + bytesSentSoFar, bytesRead - bytesSentSoFar, 0);
             if (bytesSent == -1) {
-                std::cout << "Failed to send file data." << std::endl;
+                std::cout << "Failed to send chunk data." << std::endl;
                 return -1;
             }
             bytesSentSoFar += bytesSent;
         }
         totalBytesSent += bytesRead;
+        std::cout << "Chunk data sent successfully." << std::endl;
+
+
+        // Send the chunk checksum
+        uint32_t checksum32 = htonl((uint32_t)checksum);
+        int checksumSend = send(clientSocket, &checksum32, sizeof(checksum32), 0);
+        if (checksumSend == -1){
+            std::cout << "Failed to send chunk checksum." << std::endl;
+            return -1;
+        }
+        std::cout << "Chunk checksum sent successfully." << std::endl;
+
+        // Increment the chunk index
+        chunkIndex++;
     }
-    std::cout << "File data sent successfully." << std::endl;
+    std::cout << "All chunks sent successfully." << std::endl;
     return totalBytesSent;
 }
 
@@ -146,22 +199,15 @@ int main(int argc, char* argv[]){
         std::cout << "Usage: " << argv[0] << " <server_ip>" << std::endl;
         return -1;
     }
-
+    
+    // Configure client socket
     int clientSocket = createClient();
     if (clientSocket == -1){ return -1; }
 
-int pathLengthSend(int clientSocket, const std::string& filePath){
-    uint32_t pathLength = htonl(filePath.size());
-    int pathLengthSend = send(clientSocket, &pathLength, sizeof(pathLength), 0);
-    if (pathLengthSend == -1){
-        std::cout << "Failed to send file path length." << std::endl;
-        return -1;
-    } else {
-        std::cout << "File path length sent successfully." << std::endl;
-        return pathLengthSend;
-    }
-}
+    int clientConnect = connectClient(clientSocket, argv[1]);
+    if (clientConnect == -1){ return -1; }
 
+    // file handling
     std::string filePath = getFilePath();
     if(filePath == "") { closeClient(clientSocket); return -1; }
 
@@ -172,6 +218,7 @@ int pathLengthSend(int clientSocket, const std::string& filePath){
     std::streamsize fileSize = getFileSize(file);
     if(fileSize == -1) { file.close(); closeClient(clientSocket); return -1; }
 
+    // header send
     int pathLengthSendResult = pathLengthSend(clientSocket, filePath);
     if (pathLengthSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
 
@@ -180,36 +227,13 @@ int pathLengthSend(int clientSocket, const std::string& filePath){
 
     int fileSizeSendResult = fileSizeSend(clientSocket, fileSize);
     if (fileSizeSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
-
-    int fileDataSendResult = fileDataSend(clientSocket, file, fileSize);
-    if (fileDataSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
-
-    file.close();
-    closeClient(clientSocket);
-
-    int clientConnect = connectClient(clientSocket, argv[1]);
-    if (clientConnect == -1){ return -1; }
-
-    std::string filePath = getFilePath();
-    if(filePath == "") { closeClient(clientSocket); return -1; }
-
-    std::ifstream file(filePath, std::ios::binary);
-    std::cout << "File opened successfully: " << filePath << std::endl;
-
-    std::streamsize fileSize = getFileSize(file);
-    if(fileSize == -1) { file.close(); closeClient(clientSocket); return -1; }
-
-    int pathLengthSendResult = pathLengthSend(clientSocket, filePath);
-    if (pathLengthSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
-
-    int pathSendResult = pathSend(clientSocket, filePath);
-    if (pathSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
-
-    int fileSizeSendResult = fileSizeSend(clientSocket, fileSize);
-    if (fileSizeSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
-
-    int fileDataSendResult = fileDataSend(clientSocket, file, fileSize);
-    if (fileDataSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
+    
+    int chunkCountSendResult = chunkCountSend(clientSocket, fileSize);
+    if (chunkCountSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
+    
+    // chunked data send (chunk: index, size, data, CRC32)
+    int chunkDataSendResult = chunkDataSend(clientSocket, file, fileSize);
+    if (chunkDataSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
 
     file.close();
     closeClient(clientSocket);

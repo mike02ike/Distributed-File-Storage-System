@@ -1,7 +1,10 @@
 CXX = g++
 CXXFLAGS = -std=c++17
+FILES = server.cpp
+EXECUTABLE = server
+LDFLAGS = -lz
 
 server: server.cpp
-	g++ $(CXXFLAGS) server.cpp -o server
+	$(CXX) $(CXXFLAGS) $(FILES) -o $(EXECUTABLE) $(LDFLAGS)
 clean:
-	rm -f server
+	rm -f $(EXECUTABLE)
