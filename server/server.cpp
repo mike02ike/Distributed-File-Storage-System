@@ -10,6 +10,9 @@
 #include <atomic>
 #include <fstream>
 #include <filesystem>
+#include <zlib.h>
+#include <vector>
+#include "../common.h"
 
 
 std::atomic<bool> keepRunning(true);
@@ -32,7 +35,7 @@ int createServerSocket(){
     return serverSocket;
 }
 
-int bindServerSocket(int serverSocket, int port = 8080){
+int bindServerSocket(int serverSocket, int port = PORT){
     // Define Server Address
     sockaddr_in serverAddress;
     serverAddress.sin_family = AF_INET;
@@ -96,15 +99,15 @@ ClientInfo acceptConnection(int serverSocket){
 }
 
 bool receivePathLength(int clientSocket, uint32_t& pathLength){
-    int bytesRecieved = 0;
+    int bytesReceived = 0;
     
-    while(bytesRecieved < sizeof(uint32_t)){
-        int bytes = recv(clientSocket, (char*)&pathLength + bytesRecieved, sizeof(uint32_t) - bytesRecieved, 0);
+    while(bytesReceived < sizeof(uint32_t)){
+        int bytes = recv(clientSocket, (char*)&pathLength + bytesReceived, sizeof(uint32_t) - bytesReceived, 0);
         if (bytes <= 0) {
             std::cout << "Failed to receive file path length." << std::endl;
             return false;
         }
-        bytesRecieved += bytes;
+        bytesReceived += bytes;
     }
     pathLength = ntohl(pathLength);
     return true;
@@ -112,52 +115,124 @@ bool receivePathLength(int clientSocket, uint32_t& pathLength){
 
 bool receivePath(int clientSocket, uint32_t pathLength, std::string& filePath){
     filePath.assign(pathLength, '\0');
-    int bytesRecieved = 0;
+    int bytesReceived = 0;
 
-    while(bytesRecieved < pathLength){
-        int bytes = recv(clientSocket, &filePath[bytesRecieved], pathLength - bytesRecieved, 0);
+    while(bytesReceived < pathLength){
+        int bytes = recv(clientSocket, &filePath[bytesReceived], pathLength - bytesReceived, 0);
         if (bytes <= 0) {
             std::cout << "Failed to receive file path." << std::endl;
             return false;
         }
-        bytesRecieved += bytes;
+        bytesReceived += bytes;
     }
     std::cout << "Received file path: " << filePath << std::endl;
     return true;
 }
 
 bool receiveFileSize(int clientSocket, uint32_t& fileSize){
-    int bytesRecieved = 0;
+    int bytesReceived = 0;
 
-    while(bytesRecieved < sizeof(uint32_t)){
-        int bytes = recv(clientSocket, (char*)&fileSize + bytesRecieved, sizeof(uint32_t) - bytesRecieved, 0);
+    while(bytesReceived < sizeof(uint32_t)){
+        int bytes = recv(clientSocket, (char*)&fileSize + bytesReceived, sizeof(uint32_t) - bytesReceived, 0);
         if (bytes <= 0) {
             std::cout << "Failed to receive file size." << std::endl;
             return false;
         }
-        bytesRecieved += bytes;
+        bytesReceived += bytes;
     }
     fileSize = ntohl(fileSize);
     std::cout << "Received file size: " << fileSize << " bytes" << std::endl;
     return true;
 }
 
-bool recieveFileData(int clientSocket, int clientID, std::string& fileData, uint32_t fileSize){
-    fileData.resize(fileSize);
-    int bytesRecieved = 0;
-
-    while(bytesRecieved < fileSize){
-        int bytes = recv(clientSocket, &fileData[bytesRecieved], fileSize - bytesRecieved, 0);
-        if (bytes == -1) {
-            std::cout << "Failed to receive file data." << std::endl;
-            return false;
-        } else if (bytes == 0) {
-            std::cerr << "Client " << clientID << " disconnected." << std::endl;
+bool receiveChunkCount(int clientSocket, uint32_t& chunkCount){
+    int bytesReceived = 0;
+    
+    while(bytesReceived < sizeof(uint32_t)){
+        int bytes = recv(clientSocket, (char*)&chunkCount + bytesReceived, sizeof(uint32_t) - bytesReceived, 0);
+        if (bytes <= 0) {
+            std::cout << "Failed to receive chunk count." << std::endl;
             return false;
         }
-        bytesRecieved += bytes;
+        bytesReceived += bytes;
     }
-    std::cout << "Received file data successfully." << std::endl;
+    chunkCount = ntohl(chunkCount);
+    std::cout << "Received chunk count: " << chunkCount << std::endl;
+    return true;
+}
+
+bool receiveChunkData(int clientSocket, int clientID, uint32_t& chunkCount, std::ofstream& outFile){
+    std::vector<char> buffer(CHUNK_SIZE);
+
+    for(uint32_t i = 0; i < chunkCount; ++i){
+        // Receive chunk index
+        uint32_t chunkIndex = 0;
+        int bytesReceived = 0;
+
+        while(bytesReceived < sizeof(uint32_t)){
+            int bytes = recv(clientSocket, (char*)&chunkIndex + bytesReceived, sizeof(uint32_t) - bytesReceived, 0);
+            if (bytes <= 0) {
+                std::cout << "Failed to receive chunk index." << std::endl;
+                return false;
+            }
+            bytesReceived += bytes;
+        }
+        chunkIndex = ntohl(chunkIndex);
+        std::cout << "Receiving chunk " << chunkIndex << std::endl;
+
+        // Receive chunk size
+        uint32_t chunkSize = 0;
+        bytesReceived = 0;
+        
+        while (bytesReceived < sizeof(uint32_t)){
+            int bytes = recv(clientSocket, (char*)&chunkSize + bytesReceived, sizeof(uint32_t) - bytesReceived, 0);
+            if (bytes <= 0) {
+                std::cout << "Failed to receive chunk size." << std::endl;
+                return false;
+            }
+            bytesReceived += bytes;
+        }
+        chunkSize = ntohl(chunkSize);
+        std::cout << "Received chunk size: " << chunkSize << " bytes" << std::endl;
+
+        // Receive chunk data
+        bytesReceived = 0;
+
+        while (bytesReceived < chunkSize) {
+            int bytes = recv(clientSocket, buffer.data() + bytesReceived, chunkSize - bytesReceived, 0);
+            if (bytes == -1) {
+                std::cout << "Failed to receive chunk data." << std::endl;
+                return false;
+            } else if (bytes == 0) {
+                std::cerr << "Client " << clientID << " disconnected." << std::endl;
+                return false;
+            }
+            bytesReceived += bytes;
+        }
+        outFile.write(buffer.data(), bytesReceived);
+        
+        // Receive checksum
+        uint32_t checksum;
+        bytesReceived = 0;
+
+        while(bytesReceived < sizeof(uint32_t)){
+            int bytes = recv(clientSocket, (char*)&checksum + bytesReceived, sizeof(uint32_t) - bytesReceived, 0);
+            if (bytes == -1) {
+                std::cout << "Failed to receive checksum." << std::endl;
+                return false;
+            }
+            bytesReceived += bytes;
+        }
+        checksum = ntohl(checksum);
+
+        uLong computedChecksum = crc32(0L, (const Bytef*)buffer.data(), chunkSize);
+        if (computedChecksum != checksum) {
+            std::cerr << "Checksum mismatch on chunk " << i << std::endl;
+            return false;
+        }
+        std::cout << "Chunk " << i << " checksum verified successfully." << std::endl;
+    }
+    std::cout << "Received chunk " << chunkCount << " data successfully." << std::endl;
     return true;
 }
 
@@ -165,9 +240,12 @@ void handleClient(int clientSocket, int clientID){
     uint32_t pathLength;
     std::string filePath;
     uint32_t fileSize;
-    std::string fileData;
     std::string fileName;
+    uint32_t chunkCount;
+    std::string savePath;
 
+
+    // Receive header data
     if (!receivePathLength(clientSocket, pathLength)) {
         close(clientSocket);
         return;
@@ -180,22 +258,32 @@ void handleClient(int clientSocket, int clientID){
         close(clientSocket);
         return;
     }
-    if (!recieveFileData(clientSocket, clientID, fileData, fileSize)) {
+    if (!receiveChunkCount(clientSocket, chunkCount)) {
         close(clientSocket);
         return;
     }
 
-    std::ofstream outFile(filePath, std::ios::binary);
-    if (!outFile) {
-        std::cout << "Failed to open file for writing: " << filePath << std::endl;
-        close(clientSocket);
-        return;
-    }
-    outFile.write(fileData.data(), fileSize);
-    outFile.close();
     fileName = std::filesystem::path(filePath).filename().string();
+    savePath = "storage/" + fileName;
+    std::filesystem::create_directories("storage/");
+    std::ofstream outFile(savePath, std::ios::binary);
+    if (!outFile) {
+        std::cerr << "Failed to open file for writing: " << filePath << std::endl;
+        std::filesystem::remove(savePath);
+        close(clientSocket);
+        return;
+    }
 
-    std::cout << "Client " << clientID << " successfully transferred file: " << fileName << std::endl;
+    // Receive chunk data
+    if (!receiveChunkData(clientSocket, clientID, chunkCount, outFile)) {
+        outFile.close();
+        std::filesystem::remove(savePath);
+        close(clientSocket);
+        return;
+    }
+    outFile.close();
+
+    std::cout << "Client " << clientID << " successfully transferred file: " << fileName << " to " << savePath << std::endl;
     close(clientSocket);
 }
 
