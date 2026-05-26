@@ -11,6 +11,7 @@
 #include <fstream>
 #include <filesystem>
 #include <zlib.h>
+#include <vector>
 #include "../common.h"
 
 
