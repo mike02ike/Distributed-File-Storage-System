@@ -153,7 +153,7 @@ int chunkDataSend(int clientSocket, std::ifstream& file, std::streamsize fileSiz
             std::cout << "Failed to send chunk index." << std::endl;
             return -1;
         }
-        std::cout << "Chunk index sent successfully." << std::endl;
+        std::cout << "Chunk " << chunkIndex << " index sent successfully." << std::endl;
 
         // Send the chunk size
         uint32_t chunkSize = htonl((uint32_t)bytesRead);
@@ -162,7 +162,7 @@ int chunkDataSend(int clientSocket, std::ifstream& file, std::streamsize fileSiz
             std::cout << "Failed to send chunk size." << std::endl;
             return -1;
         }
-        std::cout << "Chunk size sent successfully." << std::endl;
+        std::cout << "Chunk " << chunkIndex << " size sent successfully." << std::endl;
 
         // Send the chunk data
         std::streamsize bytesSentSoFar = 0;
@@ -175,7 +175,7 @@ int chunkDataSend(int clientSocket, std::ifstream& file, std::streamsize fileSiz
             bytesSentSoFar += bytesSent;
         }
         totalBytesSent += bytesRead;
-        std::cout << "Chunk data sent successfully." << std::endl;
+        std::cout << "Chunk " << chunkIndex << " data sent successfully." << std::endl;
 
 
         // Send the chunk checksum
@@ -185,7 +185,7 @@ int chunkDataSend(int clientSocket, std::ifstream& file, std::streamsize fileSiz
             std::cout << "Failed to send chunk checksum." << std::endl;
             return -1;
         }
-        std::cout << "Chunk checksum sent successfully." << std::endl;
+        std::cout << "Chunk " << chunkIndex << " checksum sent successfully." << std::endl;
 
         // Increment the chunk index
         chunkIndex++;

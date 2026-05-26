@@ -230,8 +230,9 @@ bool receiveChunkData(int clientSocket, int clientID, uint32_t& chunkCount, std:
             std::cerr << "Checksum mismatch on chunk " << i << std::endl;
             return false;
         }
+        std::cout << "Chunk " << i << " checksum verified successfully." << std::endl;
     }
-    std::cout << "Received chunk data successfully." << std::endl;
+    std::cout << "Received chunk " << chunkCount << " data successfully." << std::endl;
     return true;
 }
 
@@ -241,6 +242,7 @@ void handleClient(int clientSocket, int clientID){
     uint32_t fileSize;
     std::string fileName;
     uint32_t chunkCount;
+    std::string savePath;
 
 
     // Receive header data
@@ -261,9 +263,13 @@ void handleClient(int clientSocket, int clientID){
         return;
     }
 
-    std::ofstream outFile(filePath, std::ios::binary);
+    fileName = std::filesystem::path(filePath).filename().string();
+    savePath = "storage/" + fileName;
+    std::filesystem::create_directories("storage/");
+    std::ofstream outFile(savePath, std::ios::binary);
     if (!outFile) {
         std::cerr << "Failed to open file for writing: " << filePath << std::endl;
+        std::filesystem::remove(savePath);
         close(clientSocket);
         return;
     }
@@ -271,14 +277,13 @@ void handleClient(int clientSocket, int clientID){
     // Receive chunk data
     if (!receiveChunkData(clientSocket, clientID, chunkCount, outFile)) {
         outFile.close();
-        std::filesystem::remove(filePath);
+        std::filesystem::remove(savePath);
         close(clientSocket);
         return;
     }
     outFile.close();
-    fileName = std::filesystem::path(filePath).filename().string();
 
-    std::cout << "Client " << clientID << " successfully transferred file: " << fileName << std::endl;
+    std::cout << "Client " << clientID << " successfully transferred file: " << fileName << " to " << savePath << std::endl;
     close(clientSocket);
 }
 
