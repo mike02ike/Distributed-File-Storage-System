@@ -51,6 +51,7 @@ std::string getFilePath(){
     std::string filePath;
     std::cout << "Enter file path:" << std::endl;
     std::getline(std::cin, filePath);
+    std::cout << std::endl;
 
     if(filePath.empty()) {
         std::cout << "File path cannot be empty." << std::endl;
@@ -77,7 +78,6 @@ std::streamsize getFileSize(std::ifstream& file){
         std::cout << "Failed to determine file size." << std::endl;
         return -1;
     }
-    std::cout << "File size: " << fileSize << " bytes" << std::endl;
     return fileSize;
 }
 
@@ -89,7 +89,6 @@ int pathLengthSend(int clientSocket, const std::string& filePath){
         std::cout << "Failed to send file path length." << std::endl;
         return -1;
     } else {
-        std::cout << "File path length sent successfully." << std::endl;
         return pathLengthSend;
     }
 }
@@ -100,7 +99,6 @@ int pathSend(int clientSocket, const std::string& filePath){
         std::cout << "Failed to send file path." << std::endl;
         return -1;
     } else {
-        std::cout << "File path sent successfully." << std::endl;
         return pathSend;
     }
 }
@@ -112,7 +110,6 @@ int fileSizeSend(int clientSocket, std::streamsize fileSize){
         std::cout << "Failed to send file size." << std::endl;
         return -1;
     } else {
-        std::cout << "File size sent successfully." << std::endl;
         return fileSizeSend;
     }
 }
@@ -124,7 +121,6 @@ int chunkCountSend(int clientSocket, std::streamsize fileSize){
         std::cout << "Failed to send chunk count." << std::endl;
         return -1;
     } else {
-        std::cout << "Chunk count sent successfully." << std::endl;
         return chunkCountSend;
     }
 }
@@ -134,6 +130,7 @@ int chunkDataSend(int clientSocket, std::ifstream& file, std::streamsize fileSiz
     uint32_t chunkIndex = 0;
     std::vector<char> buffer(CHUNK_SIZE);
     std::streamsize totalBytesSent = 0;
+    uint32_t chunkCount = (fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE;
 
     while (totalBytesSent < fileSize) {
         file.read(buffer.data(), CHUNK_SIZE);
@@ -153,7 +150,6 @@ int chunkDataSend(int clientSocket, std::ifstream& file, std::streamsize fileSiz
             std::cout << "Failed to send chunk index." << std::endl;
             return -1;
         }
-        std::cout << "Chunk " << chunkIndex << " index sent successfully." << std::endl;
 
         // Send the chunk size
         uint32_t chunkSize = htonl((uint32_t)bytesRead);
@@ -162,7 +158,6 @@ int chunkDataSend(int clientSocket, std::ifstream& file, std::streamsize fileSiz
             std::cout << "Failed to send chunk size." << std::endl;
             return -1;
         }
-        std::cout << "Chunk " << chunkIndex << " size sent successfully." << std::endl;
 
         // Send the chunk data
         std::streamsize bytesSentSoFar = 0;
@@ -175,22 +170,25 @@ int chunkDataSend(int clientSocket, std::ifstream& file, std::streamsize fileSiz
             bytesSentSoFar += bytesSent;
         }
         totalBytesSent += bytesRead;
-        std::cout << "Chunk " << chunkIndex << " data sent successfully." << std::endl;
 
 
         // Send the chunk checksum
         uint32_t checksum32 = htonl((uint32_t)checksum);
         int checksumSend = send(clientSocket, &checksum32, sizeof(checksum32), 0);
         if (checksumSend == -1){
-            std::cout << "Failed to send chunk checksum." << std::endl;
+            std::cout << "Sending chunk " << chunkIndex + 1 << "/ " << chunkCount << " [" << totalBytesSent << " bytes]... ✗ (checksum send failed)" << std::endl;
             return -1;
         }
-        std::cout << "Chunk " << chunkIndex << " checksum sent successfully." << std::endl;
+        std::cout << "Sending chunk " << chunkIndex + 1 << "/" << chunkCount << " [" << totalBytesSent << " bytes]... ✓ (checksum sent)" << std::endl;
 
         // Increment the chunk index
         chunkIndex++;
     }
-    std::cout << "All chunks sent successfully." << std::endl;
+    if (chunkCount == 1) {
+        std::cout << "Transfer complete: " << totalBytesSent << " bytes in " << chunkCount << " chunk\n" << std::endl;
+    } else {
+        std::cout << "Transfer complete: " << totalBytesSent << " bytes in " << chunkCount << " chunks\n" << std::endl;
+    }
     return totalBytesSent;
 }
 
@@ -213,7 +211,6 @@ int main(int argc, char* argv[]){
 
     std::ifstream file(filePath, std::ios::binary);
     std::string fileName = std::filesystem::path(filePath).filename().string();
-    std::cout << "File opened successfully: " << fileName << std::endl;
 
     std::streamsize fileSize = getFileSize(file);
     if(fileSize == -1) { file.close(); closeClient(clientSocket); return -1; }
@@ -230,7 +227,9 @@ int main(int argc, char* argv[]){
     
     int chunkCountSendResult = chunkCountSend(clientSocket, fileSize);
     if (chunkCountSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
-    
+
+    int chunkCount = (fileSize + CHUNK_SIZE - 1) / CHUNK_SIZE;
+
     // chunked data send (chunk: index, size, data, CRC32)
     int chunkDataSendResult = chunkDataSend(clientSocket, file, fileSize);
     if (chunkDataSendResult == -1){ file.close(); closeClient(clientSocket); return -1; }
