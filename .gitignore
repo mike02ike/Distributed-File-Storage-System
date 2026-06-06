@@ -1,0 +1,5 @@
+.vscode/
+/server/server
+/server/storage
+/client/client
+.DS_Store
