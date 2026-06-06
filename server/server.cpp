@@ -27,6 +27,8 @@ struct ClientInfo {
 int createServerSocket(){
     //TCP & IPv4
     int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+    int opt = 1;
+    setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)); // Enable address reuse
 
     if (serverSocket == -1) {
         perror("Socket creation failed");
@@ -98,13 +100,16 @@ ClientInfo acceptConnection(int serverSocket){
     }
 }
 
-bool receivePathLength(int clientSocket, uint32_t& pathLength){
+bool receivePathLength(int clientSocket, uint32_t& pathLength, int clientID){
     int bytesReceived = 0;
     
     while(bytesReceived < sizeof(uint32_t)){
         int bytes = recv(clientSocket, (char*)&pathLength + bytesReceived, sizeof(uint32_t) - bytesReceived, 0);
-        if (bytes <= 0) {
-            std::cout << "Failed to receive file path length." << std::endl;
+        if (bytes == 0) {
+            std::cout << "Client " << clientID << " disconnected before sending." << std::endl;
+            return false;
+        } else if (bytes == -1) {
+            perror("Failed to receive file path length.");
             return false;
         }
         bytesReceived += bytes;
@@ -125,7 +130,7 @@ bool receivePath(int clientSocket, uint32_t pathLength, std::string& filePath){
         }
         bytesReceived += bytes;
     }
-    std::cout << "Received file path: " << filePath << std::endl;
+    std::cout << "Received file path: " << filePath <<  "\n" << std::endl;
     return true;
 }
 
@@ -141,7 +146,6 @@ bool receiveFileSize(int clientSocket, uint32_t& fileSize){
         bytesReceived += bytes;
     }
     fileSize = ntohl(fileSize);
-    std::cout << "Received file size: " << fileSize << " bytes" << std::endl;
     return true;
 }
 
@@ -157,17 +161,17 @@ bool receiveChunkCount(int clientSocket, uint32_t& chunkCount){
         bytesReceived += bytes;
     }
     chunkCount = ntohl(chunkCount);
-    std::cout << "Received chunk count: " << chunkCount << std::endl;
     return true;
 }
 
-bool receiveChunkData(int clientSocket, int clientID, uint32_t& chunkCount, std::ofstream& outFile){
+bool receiveChunkData(int clientSocket, int clientID, uint32_t& chunkCount, std::ofstream& outFile, uint32_t fileSize){
     std::vector<char> buffer(CHUNK_SIZE);
+    int bytesReceived = 0;
 
     for(uint32_t i = 0; i < chunkCount; ++i){
         // Receive chunk index
         uint32_t chunkIndex = 0;
-        int bytesReceived = 0;
+        bytesReceived = 0;
 
         while(bytesReceived < sizeof(uint32_t)){
             int bytes = recv(clientSocket, (char*)&chunkIndex + bytesReceived, sizeof(uint32_t) - bytesReceived, 0);
@@ -178,7 +182,6 @@ bool receiveChunkData(int clientSocket, int clientID, uint32_t& chunkCount, std:
             bytesReceived += bytes;
         }
         chunkIndex = ntohl(chunkIndex);
-        std::cout << "Receiving chunk " << chunkIndex << std::endl;
 
         // Receive chunk size
         uint32_t chunkSize = 0;
@@ -193,7 +196,6 @@ bool receiveChunkData(int clientSocket, int clientID, uint32_t& chunkCount, std:
             bytesReceived += bytes;
         }
         chunkSize = ntohl(chunkSize);
-        std::cout << "Received chunk size: " << chunkSize << " bytes" << std::endl;
 
         // Receive chunk data
         bytesReceived = 0;
@@ -227,12 +229,11 @@ bool receiveChunkData(int clientSocket, int clientID, uint32_t& chunkCount, std:
 
         uLong computedChecksum = crc32(0L, (const Bytef*)buffer.data(), chunkSize);
         if (computedChecksum != checksum) {
-            std::cerr << "Checksum mismatch on chunk " << i << std::endl;
+            std::cerr << "Receiving chunk " << chunkIndex + 1 << "/" << chunkCount << " [" << chunkSize << " bytes]... ✗ (Checksum mismatch)" << std::endl;
             return false;
         }
-        std::cout << "Chunk " << i << " checksum verified successfully." << std::endl;
+        std::cout << "Receiving chunk " << chunkIndex + 1 << "/" << chunkCount << " [" << chunkSize << " bytes]... ✓ (checksum verified)" << std::endl;
     }
-    std::cout << "Received chunk " << chunkCount << " data successfully." << std::endl;
     return true;
 }
 
@@ -246,7 +247,7 @@ void handleClient(int clientSocket, int clientID){
 
 
     // Receive header data
-    if (!receivePathLength(clientSocket, pathLength)) {
+    if (!receivePathLength(clientSocket, pathLength, clientID)) {
         close(clientSocket);
         return;
     }
@@ -275,7 +276,7 @@ void handleClient(int clientSocket, int clientID){
     }
 
     // Receive chunk data
-    if (!receiveChunkData(clientSocket, clientID, chunkCount, outFile)) {
+    if (!receiveChunkData(clientSocket, clientID, chunkCount, outFile, fileSize)) {
         outFile.close();
         std::filesystem::remove(savePath);
         close(clientSocket);
@@ -283,7 +284,7 @@ void handleClient(int clientSocket, int clientID){
     }
     outFile.close();
 
-    std::cout << "Client " << clientID << " successfully transferred file: " << fileName << " to " << savePath << std::endl;
+    std::cout << "\nClient " << clientID << " successfully transferred file as " << savePath << " (" << fileSize << " bytes in " << chunkCount << " chunk(s))" << std::endl;
     close(clientSocket);
 }
 
