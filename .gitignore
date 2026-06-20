@@ -3,3 +3,4 @@
 /server/storage
 /client/client
 .DS_Store
+/client/serverList.txt

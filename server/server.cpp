@@ -37,7 +37,7 @@ int createServerSocket(){
     return serverSocket;
 }
 
-int bindServerSocket(int serverSocket, int port = PORT){
+int bindServerSocket(int serverSocket, int port){
     // Define Server Address
     sockaddr_in serverAddress;
     serverAddress.sin_family = AF_INET;
@@ -300,13 +300,29 @@ void signalHandler(int signum) {
     keepRunning = false;
 }
 
-int main(){
+int main(int argc, char* argv[]){
+    int port;
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <server_port>" << std::endl;
+        return -1;
+    }
+    try {
+        port = std::stoi(argv[1]);
+        if (port < 1024 || port > 65535) {
+            std::cerr << "Invalid port number. Please provide a port between 1024 and 65535." << std::endl;
+            return -1;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Invalid port number. Please provide a valid integer." << std::endl;
+        return -1;
+    }
+
     std::signal(SIGINT, signalHandler);
     
     int serverSocket = createServerSocket();
     if (serverSocket == -1){ return -1; }
 
-    int serverBind = bindServerSocket(serverSocket);
+    int serverBind = bindServerSocket(serverSocket, port);
     if (serverBind == -1){ return -1; }
 
     int serverListen = listenConnection(serverSocket);
