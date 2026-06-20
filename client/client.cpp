@@ -55,15 +55,13 @@ bool parseServerList(std::vector<Server>& servers){
     if (servers.size() == 1) {
         std::cout << "Parsed 1 server from server list." << std::endl;
     } else {
-        std::cout << "Parsed " << servers.size() << " servers from server list." << std::endl;
+        std::cout << "Parsed " << servers.size() << " server from server list." << std::endl;
     }
     return true;
 }
 
 int connectClients(std::vector<int>& clientSockets, std::vector<Server>& servers){
     for (const Server& server : servers) {
-        std::cout << "Attempting to connect to server " << server.ip << ":" << server.port << "..." << std::endl;
-    
         int clientSocket = createClient();
         if (clientSocket == -1) {
             perror("Failed to create client socket");
@@ -84,6 +82,7 @@ int connectClients(std::vector<int>& clientSockets, std::vector<Server>& servers
                 return -1;
         } else {
             continue; // Successfully connected to a server, continue to the next one
+            std::cout << "Connected to server " << server.ip << " on port " << server.port << "..." << std::endl;
         }
     }
     return 0;
@@ -99,7 +98,7 @@ void closeClients(std::vector<int>& clientSockets){
 // file handling functions
 std::string getFilePath(){
     std::string filePath;
-    std::cout << "Enter file path:" << std::endl;
+    std::cout << "\nEnter file path:" << std::endl;
     std::getline(std::cin, filePath);
     std::cout << std::endl;
 
@@ -253,18 +252,18 @@ int chunkDataSend(std::vector<int>& clientSockets, std::ifstream& file, std::str
         uint32_t checksum32 = htonl((uint32_t)checksum);
         int checksumSend = send(targetSocket, &checksum32, sizeof(checksum32), 0);
         if (checksumSend == -1){
-            std::cout << "Sending chunk " << chunkIndex + 1 << "/ " << chunkCount << " [" << totalBytesSent << " bytes]... ✗ (checksum send failed)" << std::endl;
+            std::cout << "Sending chunk " << chunkIndex + 1 << "/ " << chunkCount << " [" << formatBytes(totalBytesSent) << " bytes]... ✗ (checksum send failed)" << std::endl;
             return -1;
         }
-        std::cout << "Sending chunk " << chunkIndex + 1 << "/" << chunkCount << " [" << totalBytesSent << " bytes]... ✓ (checksum sent)" << std::endl;
+        std::cout << "Sending chunk " << chunkIndex + 1 << "/" << chunkCount << " [" << formatBytes(bytesRead) << " bytes]... ✓ (checksum sent)" << std::endl;
 
         // Increment the chunk index
         chunkIndex++;
     }
     if (chunkCount == 1) {
-        std::cout << "Transfer complete: " << totalBytesSent << " bytes in " << chunkCount << " chunk\n" << std::endl;
+        std::cout << "Transfer complete: " << formatBytes(totalBytesSent) << " in " << chunkCount << " chunk\n" << std::endl;
     } else {
-        std::cout << "Transfer complete: " << totalBytesSent << " bytes in " << chunkCount << " chunks\n" << std::endl;
+        std::cout << "Transfer complete: " << formatBytes(totalBytesSent) << " in " << chunkCount << " chunks\n" << std::endl;
     }
     return totalBytesSent;
 }

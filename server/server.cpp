@@ -229,15 +229,15 @@ bool receiveChunkData(int clientSocket, int clientID, uint32_t& chunkCount, std:
 
         uLong computedChecksum = crc32(0L, (const Bytef*)buffer.data(), chunkSize);
         if (computedChecksum != checksum) {
-            std::cerr << "Receiving chunk " << chunkIndex + 1 << "/" << chunkCount << " [" << chunkSize << " bytes]... ✗ (Checksum mismatch)" << std::endl;
+            std::cerr << "Receiving chunk " << chunkIndex + 1 << " [" << formatBytes(chunkSize) << " bytes]... ✗ (Checksum mismatch)" << std::endl;
             return false;
         }
-        std::cout << "Receiving chunk " << chunkIndex + 1 << "/" << chunkCount << " [" << chunkSize << " bytes]... ✓ (checksum verified)" << std::endl;
+        std::cout << "Receiving chunk " << chunkIndex + 1 << " [" << formatBytes(chunkSize) << " bytes]... ✓ (checksum verified)" << std::endl;
     }
     return true;
 }
 
-void handleClient(int clientSocket, int clientID){
+void handleClient(int clientSocket, int clientID, int port){
     uint32_t pathLength;
     std::string filePath;
     uint32_t fileSize;
@@ -264,9 +264,15 @@ void handleClient(int clientSocket, int clientID){
         return;
     }
 
+    if (chunkCount == 0) {
+        std::cout << "Client " << clientID << " received no chunks for this transfer." << std::endl;
+        close(clientSocket);
+        return;
+    }
+
     fileName = std::filesystem::path(filePath).filename().string();
-    savePath = "storage/" + fileName;
-    std::filesystem::create_directories("storage/");
+    savePath = "storage/" + std::to_string(port) + "/" + fileName;
+    std::filesystem::create_directories("storage/" + std::to_string(port));
     std::ofstream outFile(savePath, std::ios::binary);
     if (!outFile) {
         std::cerr << "Failed to open file for writing: " << filePath << std::endl;
@@ -338,7 +344,7 @@ int main(int argc, char* argv[]){
         int clientID = clientCount.load();
         std::cout << "\nClient " << clientID << " successfully connected from: " << client.ip << ":" << client.port << std::endl;
 
-        std::thread(handleClient, client.socket, clientID).detach();
+        std::thread(handleClient, client.socket, clientID, port).detach();
     }
 
 
