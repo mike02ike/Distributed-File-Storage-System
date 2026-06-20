@@ -81,8 +81,8 @@ int connectClients(std::vector<int>& clientSockets, std::vector<Server>& servers
                 close(clientSocket);
                 return -1;
         } else {
-            continue; // Successfully connected to a server, continue to the next one
             std::cout << "Connected to server " << server.ip << " on port " << server.port << "..." << std::endl;
+            continue;
         }
     }
     return 0;

@@ -265,7 +265,7 @@ void handleClient(int clientSocket, int clientID, int port){
     }
 
     if (chunkCount == 0) {
-        std::cout << "Client " << clientID << " received no chunks for this transfer." << std::endl;
+        std::cout << "This server was not needed for the transfer." << std::endl;
         close(clientSocket);
         return;
     }
@@ -290,7 +290,7 @@ void handleClient(int clientSocket, int clientID, int port){
     }
     outFile.close();
 
-    std::cout << "\nClient " << clientID << " successfully transferred file as " << savePath << " (" << fileSize << " bytes in " << chunkCount << " chunk(s))" << std::endl;
+    std::cout << "\nClient " << clientID << " successfully transferred file as " << savePath << " (" << formatBytes(fileSize) << ")" << std::endl;
     close(clientSocket);
 }
 
