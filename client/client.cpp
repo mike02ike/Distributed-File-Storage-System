@@ -55,7 +55,7 @@ bool parseServerList(std::vector<Server>& servers){
     if (servers.size() == 1) {
         std::cout << "Parsed 1 server from server list." << std::endl;
     } else {
-        std::cout << "Parsed " << servers.size() << " server from server list." << std::endl;
+        std::cout << "Parsed " << servers.size() << " servers from server list." << std::endl;
     }
     return true;
 }
