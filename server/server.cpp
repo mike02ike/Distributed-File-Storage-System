@@ -37,7 +37,7 @@ int createServerSocket(){
     return serverSocket;
 }
 
-int bindServerSocket(int serverSocket, int port = PORT){
+int bindServerSocket(int serverSocket, int port){
     // Define Server Address
     sockaddr_in serverAddress;
     serverAddress.sin_family = AF_INET;
@@ -229,15 +229,15 @@ bool receiveChunkData(int clientSocket, int clientID, uint32_t& chunkCount, std:
 
         uLong computedChecksum = crc32(0L, (const Bytef*)buffer.data(), chunkSize);
         if (computedChecksum != checksum) {
-            std::cerr << "Receiving chunk " << chunkIndex + 1 << "/" << chunkCount << " [" << chunkSize << " bytes]... ✗ (Checksum mismatch)" << std::endl;
+            std::cerr << "Receiving chunk " << chunkIndex + 1 << " [" << formatBytes(chunkSize) << " bytes]... ✗ (Checksum mismatch)" << std::endl;
             return false;
         }
-        std::cout << "Receiving chunk " << chunkIndex + 1 << "/" << chunkCount << " [" << chunkSize << " bytes]... ✓ (checksum verified)" << std::endl;
+        std::cout << "Receiving chunk " << chunkIndex + 1 << " [" << formatBytes(chunkSize) << " bytes]... ✓ (checksum verified)" << std::endl;
     }
     return true;
 }
 
-void handleClient(int clientSocket, int clientID){
+void handleClient(int clientSocket, int clientID, int port){
     uint32_t pathLength;
     std::string filePath;
     uint32_t fileSize;
@@ -264,9 +264,15 @@ void handleClient(int clientSocket, int clientID){
         return;
     }
 
+    if (chunkCount == 0) {
+        std::cout << "This server was not needed for the transfer." << std::endl;
+        close(clientSocket);
+        return;
+    }
+
     fileName = std::filesystem::path(filePath).filename().string();
-    savePath = "storage/" + fileName;
-    std::filesystem::create_directories("storage/");
+    savePath = "storage/" + std::to_string(port) + "/" + fileName;
+    std::filesystem::create_directories("storage/" + std::to_string(port));
     std::ofstream outFile(savePath, std::ios::binary);
     if (!outFile) {
         std::cerr << "Failed to open file for writing: " << filePath << std::endl;
@@ -284,7 +290,7 @@ void handleClient(int clientSocket, int clientID){
     }
     outFile.close();
 
-    std::cout << "\nClient " << clientID << " successfully transferred file as " << savePath << " (" << fileSize << " bytes in " << chunkCount << " chunk(s))" << std::endl;
+    std::cout << "\nClient " << clientID << " successfully transferred file as " << savePath << " (" << formatBytes(fileSize) << ")" << std::endl;
     close(clientSocket);
 }
 
@@ -300,13 +306,29 @@ void signalHandler(int signum) {
     keepRunning = false;
 }
 
-int main(){
+int main(int argc, char* argv[]){
+    int port;
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <server_port>" << std::endl;
+        return -1;
+    }
+    try {
+        port = std::stoi(argv[1]);
+        if (port < 1024 || port > 65535) {
+            std::cerr << "Invalid port number. Please provide a port between 1024 and 65535." << std::endl;
+            return -1;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Invalid port number. Please provide a valid integer." << std::endl;
+        return -1;
+    }
+
     std::signal(SIGINT, signalHandler);
     
     int serverSocket = createServerSocket();
     if (serverSocket == -1){ return -1; }
 
-    int serverBind = bindServerSocket(serverSocket);
+    int serverBind = bindServerSocket(serverSocket, port);
     if (serverBind == -1){ return -1; }
 
     int serverListen = listenConnection(serverSocket);
@@ -322,7 +344,7 @@ int main(){
         int clientID = clientCount.load();
         std::cout << "\nClient " << clientID << " successfully connected from: " << client.ip << ":" << client.port << std::endl;
 
-        std::thread(handleClient, client.socket, clientID).detach();
+        std::thread(handleClient, client.socket, clientID, port).detach();
     }
 
 
